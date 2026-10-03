@@ -1,13 +1,17 @@
-from typing import Any
 import datetime as dt
 import json
 import subprocess
+import threading
 from pathlib import Path
+from typing import Any
 
 
 class Receiver:
     def __init__(
-        self, log_file: Path = Path("./log.json"), audio_device: str = "plughw:0,0"
+        self,
+        log_file: Path = Path("./log.json"),
+        audio_device: str = "plughw:0,0",
+        log_interval: float = 1.0,
     ):
         self.audio_device: str = audio_device
         self.rtl_process = None
@@ -15,6 +19,30 @@ class Receiver:
         self.frequency: float | None = None
         self.status = "idle"
         self.log_file: Path = log_file
+
+        self.log_interval = log_interval
+        self._lock = threading.Lock()
+        self._stop_logging = threading.Event()
+        self._log_thread: threading.Thread | None = None
+
+    def start_logging(self) -> None:
+        if self._log_thread and self._log_thread.is_alive():
+            return
+
+        self._stop_logging.clear()
+        self._log_thread = threading.Thread(target=self._log_loop, daemon=True)
+        self._log_thread.start()
+
+    def stop_logging(self) -> None:
+        self._stop_logging.set()
+        if self._log_thread:
+            self._log_thread.join()
+            self._log_thread = None
+
+    def _log_loop(self) -> None:
+        # wait() returns True when the event is set, so this exits promptly
+        while not self._stop_logging.wait(self.log_interval):
+            self.log()
 
     def tune(self, frequency):
         self.stop()
@@ -99,11 +127,17 @@ class Receiver:
             "frequency": self.frequency,
         }
 
-        with open(self.log_file, "w") as f:
-            json.dump(state, f)
+        with self._lock:
+            tmp = self.log_file.with_suffix(".tmp")
+
+            with open(tmp, "w") as f:
+                json.dump(state, f)
+
+            tmp.replace(self.log_file)
 
 
 receiver = Receiver()
+receiver.start_logging()
 
 # Headless interface
 try:
@@ -134,5 +168,6 @@ try:
         receiver.log()
 
 finally:
+    receiver.stop_logging()
     receiver.stop()
     receiver.log()
