@@ -1,12 +1,20 @@
+from typing import Any
+import datetime as dt
+import json
 import subprocess
+from pathlib import Path
+
 
 class Receiver:
-    def __init__(self, audio_device: str = "plughw:0,0"):
+    def __init__(
+        self, log_file: Path = Path("./log.json"), audio_device: str = "plughw:0,0"
+    ):
         self.audio_device: str = audio_device
         self.rtl_process = None
         self.aplay_process = None
         self.frequency: float | None = None
-        self.status = "Idle"
+        self.status = "idle"
+        self.log_file: Path = log_file
 
     def tune(self, frequency):
         self.stop()
@@ -16,14 +24,13 @@ class Receiver:
 
         self.play()
 
-
     def play(self) -> None:
 
         if self.frequency is None:
             print("No frequency set")
             return
 
-        self.status = f"Playing, listening on: {self.frequency / 1e6:.3f} MHz"
+        self.status = f"playing"
 
         self.rtl_process = subprocess.Popen(
             [
@@ -59,7 +66,7 @@ class Receiver:
         )
 
     def stop(self) -> None:
-        self.status = "Idle"
+        self.status = "idle"
 
         if self.aplay_process:
             self.aplay_process.terminate()
@@ -72,9 +79,31 @@ class Receiver:
             self.rtl_process.stdout.close()
             self.rtl_process = None
 
+    def print_status(self) -> None:
+        match self.status:
+            case "idle":
+                print("Idle")
+
+            case "playing":
+                print(f"Playing, listening on: {self.frequency / 1e6} MHz")
+
+            case _:
+                print("Status unknown")
+
+    def log(self) -> None:
+        """Writes current state to logfile to be read by UI"""
+
+        state: dict[str, Any] = {
+            "last-updated": str(dt.datetime.now()),
+            "status": self.status,
+            "frequency": self.frequency,
+        }
+
+        with open(self.log_file, "w") as f:
+            json.dump(state, f)
+
 
 receiver = Receiver()
-
 
 # Headless interface
 try:
@@ -90,7 +119,7 @@ try:
             receiver.tune(frequency_input * 1e6)
 
         elif command == "status":
-            print(receiver.status)
+            receiver.print_status()
 
         else:
             print(f"Unknown command: {command}")
@@ -100,6 +129,9 @@ try:
             print("    tune [freq (MHz)]")
             print("    quit")
             print("")
+
+        # Log after each command so we can update the UI
+        receiver.log()
 
 finally:
     receiver.stop()
