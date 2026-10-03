@@ -1,15 +1,12 @@
 import subprocess
 
-FREQUENCY = 103.8e6  # Hz
-AUDIO_DEVICE = "plughw:2,0"
-
-
 class Receiver:
-    def __init__(self, audio_device: str = "plughw:2,0"):
+    def __init__(self, audio_device: str = "plughw:0,0"):
         self.audio_device: str = audio_device
         self.rtl_process = None
         self.aplay_process = None
-        self.frequency = None
+        self.frequency: float | None = None
+        self.status = "Idle"
 
     def tune(self, frequency):
         self.stop()
@@ -21,7 +18,14 @@ class Receiver:
 
 
     def play(self) -> None:
-        self.rtl = subprocess.Popen(
+
+        if self.frequency is None:
+            print("No frequency set")
+            return
+
+        self.status = f"Playing, listening on: {self.frequency / 1e6:.3f} MHz"
+
+        self.rtl_process = subprocess.Popen(
             [
                 "rtl_fm",
                 "-f",
@@ -34,9 +38,10 @@ class Receiver:
                 "48000",
             ],
             stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
         )
 
-        self.aplay = subprocess.Popen(
+        self.aplay_process = subprocess.Popen(
             [
                 "aplay",
                 "-D",
@@ -48,28 +53,53 @@ class Receiver:
                 "-c",
                 "1",
             ],
-            stdin=self.rtl.stdout,
+            stdin=self.rtl_process.stdout,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
     def stop(self) -> None:
-        if self.aplay:
-            self.aplay.terminate()
-            self.aplay.wait()
-            self.aplay = None
+        self.status = "Idle"
 
-        if self.rtl:
-            self.rtl.terminate()
-            self.rtl.wait()
-            self.rtl = None
+        if self.aplay_process:
+            self.aplay_process.terminate()
+            self.aplay_process.wait()
+            self.aplay_process = None
+
+        if self.rtl_process:
+            self.rtl_process.terminate()
+            self.rtl_process.wait()
+            self.rtl_process.stdout.close()
+            self.rtl_process = None
 
 
 receiver = Receiver()
 
 
+# Headless interface
 try:
-    receiver.tune(103.8e6)
+    while True:
+        command = input("> ").strip()
 
-    input("Press Enter to stop")
+        exit_commands = ["quit", "exit"]
+        if command in exit_commands:
+            break
+
+        elif command.startswith("tune "):
+            frequency_input = float(command.split()[1])
+            receiver.tune(frequency_input * 1e6)
+
+        elif command == "status":
+            print(receiver.status)
+
+        else:
+            print(f"Unknown command: {command}")
+            print("")
+            print("Commands:")
+            print("    status")
+            print("    tune [freq (MHz)]")
+            print("    quit")
+            print("")
 
 finally:
     receiver.stop()
