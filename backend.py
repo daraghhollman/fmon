@@ -135,3 +135,4 @@ try:
 
 finally:
     receiver.stop()
+    receiver.log()
