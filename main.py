@@ -4,58 +4,72 @@ FREQUENCY = 103.8e6  # Hz
 AUDIO_DEVICE = "plughw:2,0"
 
 
-def start_radio(frequency):
+class Receiver:
+    def __init__(self, audio_device: str = "plughw:2,0"):
+        self.audio_device: str = audio_device
+        self.rtl_process = None
+        self.aplay_process = None
+        self.frequency = None
 
-    command = [
-        "rtl_fm",
-        "-f",
-        str(frequency),
-        "-M",
-        "wbfm",
-        "-s",
-        "200k",
-        "-r",
-        "48000",
-    ]
+    def tune(self, frequency):
+        self.stop()
 
-    rtl = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-    )
+        self.frequency = frequency
+        print(f"Tuning to {frequency / 1e6:.3f} MHz")
 
-    aplay = subprocess.Popen(
-        [
-            "aplay",
-            "-D",
-            AUDIO_DEVICE,
-            "-r",
-            "48000",
-            "-f",
-            "S16_LE",
-            "-c",
-            "1",
-        ],
-        stdin=rtl.stdout,
-    )
-
-    return rtl, aplay
-
-def stop_radio(rtl, aplay):
-    aplay.terminate()
-    rtl.terminate()
-
-    aplay.wait()
-    rtl.wait()
+        self.play()
 
 
-if __name__ == "__main__":
-    print(f"Tuning to {FREQUENCY / 1e6:.3f} MHz")
+    def play(self) -> None:
+        self.rtl = subprocess.Popen(
+            [
+                "rtl_fm",
+                "-f",
+                str(self.frequency),
+                "-M",
+                "wbfm",
+                "-s",
+                "200k",
+                "-r",
+                "48000",
+            ],
+            stdout=subprocess.PIPE,
+        )
 
-    rtl, aplay = start_radio((FREQUENCY))
+        self.aplay = subprocess.Popen(
+            [
+                "aplay",
+                "-D",
+                self.audio_device,
+                "-r",
+                "48000",
+                "-f",
+                "S16_LE",
+                "-c",
+                "1",
+            ],
+            stdin=self.rtl.stdout,
+        )
 
-    try:
-        aplay.wait()
+    def stop(self) -> None:
+        if self.aplay:
+            self.aplay.terminate()
+            self.aplay.wait()
+            self.aplay = None
 
-    except KeyboardInterrupt:
-        print("\nStopping radio...")
-        stop_radio(rtl, aplay)
+        if self.rtl:
+            self.rtl.terminate()
+            self.rtl.wait()
+            self.rtl = None
+
+
+receiver = Receiver()
+
+
+try:
+    receiver.tune(103.8e6)
+
+    input("Press Enter to stop")
+
+finally:
+    receiver.stop()
