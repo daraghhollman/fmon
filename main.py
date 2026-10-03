@@ -1,10 +1,61 @@
-from rtlsdr import RtlSdr
+import subprocess
 
-sdr = RtlSdr()
-sdr.sample_rate = 2.048e6 # Hz
-sdr.center_freq = 100e6 # Hz
-sdr.freq_correction = 60 # PPM
-sdr.gain = "auto"
+FREQUENCY = 103.8e6  # Hz
+AUDIO_DEVICE = "plughw:2,0"
 
-print(len(sdr.read_samples(1024)))
-sdr.close()
+
+def start_radio(frequency):
+
+    command = [
+        "rtl_fm",
+        "-f",
+        str(frequency),
+        "-M",
+        "wbfm",
+        "-s",
+        "200k",
+        "-r",
+        "48000",
+    ]
+
+    rtl = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+    )
+
+    aplay = subprocess.Popen(
+        [
+            "aplay",
+            "-D",
+            AUDIO_DEVICE,
+            "-r",
+            "48000",
+            "-f",
+            "S16_LE",
+            "-c",
+            "1",
+        ],
+        stdin=rtl.stdout,
+    )
+
+    return rtl, aplay
+
+def stop_radio(rtl, aplay):
+    aplay.terminate()
+    rtl.terminate()
+
+    aplay.wait()
+    rtl.wait()
+
+
+if __name__ == "__main__":
+    print(f"Tuning to {FREQUENCY / 1e6:.3f} MHz")
+
+    rtl, aplay = start_radio((FREQUENCY))
+
+    try:
+        aplay.wait()
+
+    except KeyboardInterrupt:
+        print("\nStopping radio...")
+        stop_radio(rtl, aplay)
